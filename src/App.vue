@@ -138,9 +138,8 @@ onMounted(() => {
     const markerElement = document.createElement('button')
     markerElement.className = 'coral-marker'
     markerElement.type = 'button'
-    markerElement.setAttribute('aria-label', `Open ${coral.name}`)
+    markerElement.setAttribute('aria-label', `Show summary for ${coral.name}`)
     markerElement.innerHTML = '<span class="coral-branch coral-branch-a"></span><span class="coral-branch coral-branch-b"></span><span class="coral-branch coral-branch-c"></span>'
-    markerElement.addEventListener('click', () => openDetails(coral.id))
 
     new mapboxgl.Marker({ element: markerElement, anchor: 'center' })
       .setLngLat([coral.lng, coral.lat])
