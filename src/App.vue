@@ -41,7 +41,7 @@ const corals = [
   }
 ]
 
-// 2. STATE UNTUK SIDEBAR: Menyimpan data koral mana yang lagi diklik
+// 2. STATE UNTUK SIDEBAR & UI
 const selectedCoral = ref(null)
 const activeMenu = ref('overview')
 const isSidebarOpen = ref(false)
@@ -55,6 +55,18 @@ const mapZoom = ref(1)
 const mapOffset = ref({ x: 0, y: 0 })
 const isMapDragging = ref(false)
 const dragOrigin = ref({ x: 0, y: 0 })
+
+// State untuk Token Mapbox & Fallback Satelit/Medan 3D
+const mapboxToken = ref(
+  localStorage.getItem('yrkl_custom_mapbox_token') ||
+  import.meta.env.VITE_MAPBOX_TOKEN ||
+  'pk.eyJ1IjoieXJrbCIsImEiOiJjbXVpNno2ZmgwNWMxMndwdXlqeXpkbWxiIn0.gdse692iUvEiuPYsEMSowA'
+)
+const isFallbackActive = ref(false)
+const showTokenBanner = ref(false)
+const showTokenModal = ref(false)
+const inputToken = ref('')
+const fallbackReason = ref('')
 
 // 3. FUNGSI BUKA DETAIL: Dipanggil saat tombol di popup diklik
 const openDetails = (coralId) => {
@@ -113,7 +125,6 @@ const stopMapDrag = (event) => {
   if (event.currentTarget && event.currentTarget.hasPointerCapture(event.pointerId)) {
     event.currentTarget.releasePointerCapture(event.pointerId)
   }
-
 }
 
 const getZoomProgress = () => `${Math.round(Math.max(0, Math.min(1, (mapZoomLevel.value - 1) / 11)) * 100)}%`
@@ -124,7 +135,6 @@ const selectMenu = (menu) => {
   if (menu === 'overview') {
     selectedCoral.value = null
   }
-
 }
 
 const toggleSidebar = () => {
@@ -137,9 +147,13 @@ const setMapAppearance = () => {
 
   for (const layer of Object.values(map.getStyle().layers || [])) {
     if (layer.type === 'raster') {
-      map.setPaintProperty(layer.id, 'raster-saturation', isMonochromeEnabled.value ? -1 : 0)
-      map.setPaintProperty(layer.id, 'raster-brightness-min', isMonochromeEnabled.value ? 0.12 : 0)
-      map.setPaintProperty(layer.id, 'raster-brightness-max', isMonochromeEnabled.value ? 0.68 : 1)
+      try {
+        map.setPaintProperty(layer.id, 'raster-saturation', isMonochromeEnabled.value ? -1 : 0)
+        map.setPaintProperty(layer.id, 'raster-brightness-min', isMonochromeEnabled.value ? 0.12 : 0)
+        map.setPaintProperty(layer.id, 'raster-brightness-max', isMonochromeEnabled.value ? 0.68 : 1)
+      } catch {
+        // Abaikan layer raster yang tidak mendukung brightness-min/max
+      }
     }
   }
 }
@@ -165,9 +179,69 @@ const handleOpenMap = (event) => {
   openMap(event.detail)
 }
 
+// FUNGSI AKTIVASI FALLBACK SATELIT & MEDAN 3D SAAT TOKEN MAPBOX KENA RATE LIMIT / 429
+const activateFallback = (reason = 'Batas Kuota Mapbox Tercapai (HTTP 429)') => {
+  const map = mapInstance.value
+  if (!map) return
+
+  fallbackReason.value = reason
+  showTokenBanner.value = true
+
+  if (isFallbackActive.value) return
+  isFallbackActive.value = true
+
+  try {
+    // 1. Fallback Citra Satelit Resolusi Tinggi (Esri World Imagery)
+    if (!map.getSource('esri-fallback-sat')) {
+      map.addSource('esri-fallback-sat', {
+        type: 'raster',
+        tiles: ['https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        maxzoom: 19
+      })
+    }
+
+    if (!map.getLayer('esri-fallback-layer')) {
+      const layers = map.getStyle()?.layers || []
+      const firstSymbol = layers.find(l => l.type === 'symbol')
+      map.addLayer({
+        id: 'esri-fallback-layer',
+        type: 'raster',
+        source: 'esri-fallback-sat'
+      }, firstSymbol ? firstSymbol.id : undefined)
+    }
+
+    // 2. Fallback Medan 3D DEM (AWS Terrarium DEM)
+    if (!map.getSource('aws-terrain-dem')) {
+      map.addSource('aws-terrain-dem', {
+        type: 'raster-dem',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+        encoding: 'terrarium',
+        tileSize: 256,
+        maxzoom: 15
+      })
+    }
+    map.setTerrain({ source: 'aws-terrain-dem', exaggeration: 1.6 })
+
+    setMapAppearance()
+  } catch (err) {
+    console.warn('Fallback activation notice:', err)
+  }
+}
+
+const saveCustomToken = () => {
+  if (!inputToken.value.trim()) return
+  localStorage.setItem('yrkl_custom_mapbox_token', inputToken.value.trim())
+  window.location.reload()
+}
+
+const resetCustomToken = () => {
+  localStorage.removeItem('yrkl_custom_mapbox_token')
+  window.location.reload()
+}
+
 onMounted(() => {
-  // Wajib masukin API Key lu
-  mapboxgl.accessToken = 'pk.eyJ1IjoieXJrbCIsImEiOiJjbXVpNno2ZmgwNWMxMndwdXlqeXpkbWxiIn0.gdse692iUvEiuPYsEMSowA'
+  mapboxgl.accessToken = mapboxToken.value
 
   const map = new mapboxgl.Map({
     container: 'map',
@@ -179,6 +253,7 @@ onMounted(() => {
     attributionControl: false
   })
   mapInstance.value = map
+
   map.on('zoom', () => {
     if (zoomFrame) return
     zoomFrame = requestAnimationFrame(() => {
@@ -192,15 +267,67 @@ onMounted(() => {
   map.on('style.load', () => {
     map.setFog({ color: 'rgb(186, 210, 235)', 'space-color': 'rgb(11, 11, 25)' })
     
-    // LAYER TERRAIN & 3D BANGUNAN (Sesuai kodingan kita sebelumnya)
-    map.addSource('mapbox-dem', { 'type': 'raster-dem', 'url': 'mapbox://mapbox.mapbox-terrain-dem-v1', 'tileSize': 512, 'maxzoom': 14 })
-    map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 3.0 }) 
+    // LAYER TERRAIN MAPBOX DEM
+    if (!map.getSource('mapbox-dem')) {
+      map.addSource('mapbox-dem', {
+        type: 'raster-dem',
+        url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+        tileSize: 512,
+        maxzoom: 14
+      })
+    }
+    map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.8 })
+
+    // LAYER 3D BANGUNAN (Fill Extrusion)
+    if (!map.getLayer('3d-buildings') && map.getSource('composite')) {
+      const layers = map.getStyle().layers || []
+      const labelLayerId = layers.find(l => l.type === 'symbol' && l.layout?.['text-field'])?.id
+      map.addLayer({
+        id: '3d-buildings',
+        source: 'composite',
+        'source-layer': 'building',
+        filter: ['==', 'extrude', 'true'],
+        type: 'fill-extrusion',
+        minzoom: 15,
+        paint: {
+          'fill-extrusion-color': '#aaa',
+          'fill-extrusion-height': [
+            'interpolate', ['linear'], ['zoom'],
+            15, 0,
+            15.05, ['get', 'height']
+          ],
+          'fill-extrusion-base': [
+            'interpolate', ['linear'], ['zoom'],
+            15, 0,
+            15.05, ['get', 'min_height']
+          ],
+          'fill-extrusion-opacity': 0.6
+        }
+      }, labelLayerId)
+    }
+
     setMapAppearance()
   })
 
+  // Deteksi error 429 atau 401/403 dari Mapbox
+  map.on('error', (e) => {
+    const status = e?.error?.status
+    if (status === 429 || status === 401 || status === 403 || e?.error?.message?.includes('429')) {
+      activateFallback(status === 429 ? 'Batas Kuota Mapbox Tercapai (HTTP 429)' : 'Token Mapbox Ditolak (Error Autentikasi)')
+    }
+  })
+
+  // Uji koneksi satelit Mapbox secara proaktif
+  fetch(`https://api.mapbox.com/v4/mapbox.satellite/1/0/0.webp?access_token=${mapboxToken.value}`)
+    .then(res => {
+      if (res.status === 429 || res.status === 401 || res.status === 403) {
+        activateFallback(`Batas Kuota Mapbox Tercapai (HTTP ${res.status})`)
+      }
+    })
+    .catch(() => {})
+
   // 4. THE MAGIC: Looping data buat bikin Marker & Popup
   corals.forEach((coral) => {
-    // Desain HTML Popup (Mirip referensi gambar lu)
     const popupHTML = `
       <div class="custom-popup">
         <div class="popup-heading">
@@ -249,6 +376,47 @@ onBeforeUnmount(() => {
 
 <template>
   <div id="app-container">
+    <!-- BANNER PERINGATAN KUOTA TOKEN MAPBOX & STATUS FALLBACK -->
+    <div v-if="showTokenBanner" class="token-warning-banner">
+      <div class="token-banner-content">
+        <span class="token-banner-icon">ℹ️</span>
+        <div class="token-banner-text">
+          <strong>{{ fallbackReason || 'Satelit Cadangan Aktif' }}</strong>
+          <span>Menampilkan peta satelit (Esri) dan kontur medan 3D otomatis. Peta tetap dapat digunakan secara optimal.</span>
+        </div>
+      </div>
+      <div class="token-banner-actions">
+        <button type="button" class="btn-token-action" @click="showTokenModal = true">Ganti Token Mapbox</button>
+        <button type="button" class="btn-token-close" aria-label="Tutup" @click="showTokenBanner = false">×</button>
+      </div>
+    </div>
+
+    <!-- MODAL GANTI TOKEN MAPBOX -->
+    <div v-if="showTokenModal" class="token-modal-backdrop" @click.self="showTokenModal = false">
+      <div class="token-modal">
+        <header class="token-modal-header">
+          <h3>Konfigurasi Token Mapbox</h3>
+          <button type="button" class="token-modal-close" @click="showTokenModal = false">×</button>
+        </header>
+        <div class="token-modal-body">
+          <p>
+            Akun Mapbox saat ini telah mencapai limit kuota (HTTP 429). Untuk menggunakan citra satelit bawaan Mapbox, Anda dapat membuat akun baru gratis di
+            <a href="https://account.mapbox.com/" target="_blank" rel="noopener">mapbox.com</a> dan memasukkan token publik (<code>pk...</code>) di bawah ini:
+          </p>
+          <input
+            v-model="inputToken"
+            type="text"
+            placeholder="pk.eyJ1Ijoi..."
+            class="token-input"
+          />
+          <div class="token-modal-buttons">
+            <button type="button" class="btn-modal-save" @click="saveCustomToken">Simpan &amp; Muat Ulang</button>
+            <button type="button" class="btn-modal-reset" @click="resetCustomToken">Reset ke Awal</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <nav class="navigation-rail" aria-label="Main navigation">
       <button class="rail-logo" aria-label="Rumah Konservasi Laut Tracking home" @click="selectMenu('overview')">
         <img :src="branding.logo" :alt="branding.appName" />
@@ -279,10 +447,11 @@ onBeforeUnmount(() => {
           <span class="rail-icon">{{ branding.icons.nurseries }}</span><span class="rail-tooltip">Coral Nurseries</span>
         </button>
       </div>
-      <button class="rail-item rail-bottom" aria-label="Help">
-        <span class="rail-icon">{{ branding.icons.help }}</span><span class="rail-tooltip">Help</span>
+      <button class="rail-item rail-bottom" aria-label="Help" @click="showTokenModal = true">
+        <span class="rail-icon">⚙</span><span class="rail-tooltip">Pengaturan Token</span>
       </button>
     </nav>
+
     <!-- PANEL SIDEBAR -->
     <button
       class="sidebar-toggle"
