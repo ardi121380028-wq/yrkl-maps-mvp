@@ -60,7 +60,7 @@ const dragOrigin = ref({ x: 0, y: 0 })
 const mapboxToken = ref(
   localStorage.getItem('yrkl_custom_mapbox_token') ||
   import.meta.env.VITE_MAPBOX_TOKEN ||
-  'pk.eyJ1IjoieXJrbCIsImEiOiJjbXVpNno2ZmgwNWMxMndwdXlqeXpkbWxiIn0.gdse692iUvEiuPYsEMSowA'
+  'pk.eyJ1IjoiaXJzZ2VlZGVzaWduIiwiYSI6ImNtd2M0aDg0ajAwY2YyeXBxcmtnMXA2MHcifQ.5Dh6Ynsv_M4bDWLU8pLjvQ'
 )
 const isFallbackActive = ref(false)
 const showTokenBanner = ref(false)
