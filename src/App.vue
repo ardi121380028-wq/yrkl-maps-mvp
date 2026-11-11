@@ -63,10 +63,6 @@ const mapboxToken = ref(
   'pk.eyJ1IjoiaXJzZ2VlZGVzaWduIiwiYSI6ImNtd2M0aDg0ajAwY2YyeXBxcmtnMXA2MHcifQ.5Dh6Ynsv_M4bDWLU8pLjvQ'
 )
 const isFallbackActive = ref(false)
-const showTokenBanner = ref(false)
-const showTokenModal = ref(false)
-const inputToken = ref('')
-const fallbackReason = ref('')
 
 // 3. FUNGSI BUKA DETAIL: Dipanggil saat tombol di popup diklik
 const openDetails = (coralId) => {
@@ -179,15 +175,10 @@ const handleOpenMap = (event) => {
   openMap(event.detail)
 }
 
-// FUNGSI AKTIVASI FALLBACK SATELIT & MEDAN 3D SAAT TOKEN MAPBOX KENA RATE LIMIT / 429
-const activateFallback = (reason = 'Batas Kuota Mapbox Tercapai (HTTP 429)') => {
+// FUNGSI AKTIVASI FALLBACK SATELIT & MEDAN 3D SECARA SENYAP (SILENT FALLBACK)
+const activateFallback = () => {
   const map = mapInstance.value
-  if (!map) return
-
-  fallbackReason.value = reason
-  showTokenBanner.value = true
-
-  if (isFallbackActive.value) return
+  if (!map || isFallbackActive.value) return
   isFallbackActive.value = true
 
   try {
@@ -225,19 +216,8 @@ const activateFallback = (reason = 'Batas Kuota Mapbox Tercapai (HTTP 429)') => 
 
     setMapAppearance()
   } catch (err) {
-    console.warn('Fallback activation notice:', err)
+    console.warn('Fallback notice:', err)
   }
-}
-
-const saveCustomToken = () => {
-  if (!inputToken.value.trim()) return
-  localStorage.setItem('yrkl_custom_mapbox_token', inputToken.value.trim())
-  window.location.reload()
-}
-
-const resetCustomToken = () => {
-  localStorage.removeItem('yrkl_custom_mapbox_token')
-  window.location.reload()
 }
 
 onMounted(() => {
@@ -367,47 +347,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div id="app-container">
-    <!-- BANNER PERINGATAN KUOTA TOKEN MAPBOX & STATUS FALLBACK -->
-    <div v-if="showTokenBanner" class="token-warning-banner">
-      <div class="token-banner-content">
-        <span class="token-banner-icon">ℹ️</span>
-        <div class="token-banner-text">
-          <strong>{{ fallbackReason || 'Satelit Cadangan Aktif' }}</strong>
-          <span>Menampilkan peta satelit (Esri) dan kontur medan 3D otomatis. Peta tetap dapat digunakan secara optimal.</span>
-        </div>
-      </div>
-      <div class="token-banner-actions">
-        <button type="button" class="btn-token-action" @click="showTokenModal = true">Ganti Token Mapbox</button>
-        <button type="button" class="btn-token-close" aria-label="Tutup" @click="showTokenBanner = false">×</button>
-      </div>
-    </div>
-
-    <!-- MODAL GANTI TOKEN MAPBOX -->
-    <div v-if="showTokenModal" class="token-modal-backdrop" @click.self="showTokenModal = false">
-      <div class="token-modal">
-        <header class="token-modal-header">
-          <h3>Konfigurasi Token Mapbox</h3>
-          <button type="button" class="token-modal-close" @click="showTokenModal = false">×</button>
-        </header>
-        <div class="token-modal-body">
-          <p>
-            Akun Mapbox saat ini telah mencapai limit kuota (HTTP 429). Untuk menggunakan citra satelit bawaan Mapbox, Anda dapat membuat akun baru gratis di
-            <a href="https://account.mapbox.com/" target="_blank" rel="noopener">mapbox.com</a> dan memasukkan token publik (<code>pk...</code>) di bawah ini:
-          </p>
-          <input
-            v-model="inputToken"
-            type="text"
-            placeholder="pk.eyJ1Ijoi..."
-            class="token-input"
-          />
-          <div class="token-modal-buttons">
-            <button type="button" class="btn-modal-save" @click="saveCustomToken">Simpan &amp; Muat Ulang</button>
-            <button type="button" class="btn-modal-reset" @click="resetCustomToken">Reset ke Awal</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <nav class="navigation-rail" aria-label="Main navigation">
       <button class="rail-logo" aria-label="Rumah Konservasi Laut Tracking home" @click="selectMenu('overview')">
         <img :src="branding.logo" :alt="branding.appName" />
@@ -438,8 +377,8 @@ onBeforeUnmount(() => {
           <span class="rail-icon">{{ branding.icons.nurseries }}</span><span class="rail-tooltip">Coral Nurseries</span>
         </button>
       </div>
-      <button class="rail-item rail-bottom" aria-label="Help" @click="showTokenModal = true">
-        <span class="rail-icon">⚙</span><span class="rail-tooltip">Pengaturan Token</span>
+      <button class="rail-item rail-bottom" aria-label="Help">
+        <span class="rail-icon">{{ branding.icons.help }}</span><span class="rail-tooltip">Help</span>
       </button>
     </nav>
 
