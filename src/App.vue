@@ -317,15 +317,6 @@ onMounted(() => {
     }
   })
 
-  // Uji koneksi satelit Mapbox secara proaktif
-  fetch(`https://api.mapbox.com/v4/mapbox.satellite/1/0/0.webp?access_token=${mapboxToken.value}`)
-    .then(res => {
-      if (res.status === 429 || res.status === 401 || res.status === 403) {
-        activateFallback(`Batas Kuota Mapbox Tercapai (HTTP ${res.status})`)
-      }
-    })
-    .catch(() => {})
-
   // 4. THE MAGIC: Looping data buat bikin Marker & Popup
   corals.forEach((coral) => {
     const popupHTML = `
